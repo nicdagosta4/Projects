@@ -1,0 +1,207 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+
+def create_gui():
+    root = tk.Tk()
+    root.title("FHA Streamline Calculator")
+    
+    # Dictionary to store all entry widgets and their frames
+    entries = {}
+    frames = {}
+    
+    # Function to perform calculations and show/hide fields
+    def calculate():
+        try:
+            # Clear previous output
+            output.delete(1.0, tk.END)
+            
+            # Get initial values
+            AV = float(entries["AV"].get())
+            avMatch = entries["avMatch"].get().lower()
+            prinBal = float(entries["prinBal"].get())
+            ppInt = float(entries["ppInt"].get())
+            miDue = float(entries["miDue"].get())
+            mipRefund = float(entries["mipRefund"].get())
+            origPrinc = float(entries["origPrinc"].get())
+            newMI = float(entries["newMI"].get())
+            PITI = float(entries["PITI"].get())
+            cTc = float(entries["cTc"].get())
+            rateRed = float(entries["rateRed"].get())
+            miRed = float(entries["miRed"].get())
+
+            output_text = ""
+            
+            # avMatch check
+            if avMatch == "n":
+                output_text += "Email template to send:\nHi - some feedback on this streamline: it was submitted with an Appraised Value that doesn't match the Refi Auth, so our LTV and streamline tool are wrong. I'm working on finalizing the numbers to see if the PE is doable\n\n"
+
+            # Max loan amount calculation
+            maxbase = prinBal + ppInt + miDue
+            if maxbase > origPrinc:
+                maxbase = origPrinc
+                output_text += "**Note**: capped at original principal\n"
+            maxLA = maxbase - mipRefund + newMI
+            output_text += f"**Your MAX loan amount is $ {maxLA}\n"
+
+            # LTV calculation
+            LTV = (maxLA / AV) * 100
+            output_text += f"LTV is {LTV:.2f}%\n"
+
+            # PE calculation
+            PE = round(((cTc - PITI) / maxLA) * 10000)
+            output_text += f"Initial PE: {PE} bps\n"
+
+            # Benefit determination
+            total_red = rateRed + miRed
+            if total_red < 0.5:
+                output_text += f"Benefit is only a {total_red} reduction\n"
+                if LTV > 95:
+                    # Show 95% LTV fields
+                    frames["ltv95_frame"].grid()
+                    la95 = AV * 0.95
+                    cTc95 = float(entries["cTc95"].get())
+                    pe95 = round(((cTc95 - PITI) / la95) *10000)
+                    peDif = pe95 - PE
+                    output_text += f"Loan amount at 95 LTV: {la95:.2f}\n"
+                    output_text += f"PE at 95 LTV: {pe95:.2f} which is {peDif:.2f} greater than prior PE\n"
+                    
+                    ratDif95 = float(entries["ratDif95"].get())
+                    if peDif < ratDif95:
+                        bestOption = pe95
+                        output_text += f"Better to lower loan amount to 95 LTV with PE: {pe95:.2f}\n"
+                    else:
+                        bestOption = ratDif95 + PE
+                        output_text += f"Better to lower rate with total PE: {bestOption:.2f}\n"
+                    if PE < bestOption:
+                        PE = bestOption
+                else:
+                    frames["ltv95_frame"].grid_remove()
+            else:
+                frames["ltv95_frame"].grid_remove()
+
+            # PE over 150 bps check
+            if PE > 150:
+                # Show PE-related fields
+                frames["pe_frame"].grid()
+                output_text += "PE is over 150 bps, let's look closer\n"
+                liteEscrw = entries["liteEscrw"].get().lower()
+                xfertax = entries["xfertax"].get().lower()
+                cmmtFee = entries["cmmtFee"].get().lower()
+                notes = entries["notes"].get().lower()
+                
+                if liteEscrw == 'y': output_text += "Light escrow account noted\n"
+                if xfertax == 'y': output_text += "Transfer taxes present\n"
+                if cmmtFee == 'y': output_text += "Commitment fee present\n"
+                
+                if notes == 'y':
+                    # Show notes-related fields
+                    frames["notes_frame"].grid()
+                    notesPE = float(entries["notesPE"].get())
+                    output_text += "PE from cap markets in notes is " + str(notesPE) + "\n"
+                    if PE > notesPE:
+                        output_text += "PE needed is larger than PE in notes\n"
+                        pmtMade = entries["pmtMade"].get().lower()
+                        if pmtMade == 'y':
+                            output_text += "We'll need to push closing date to next month\n"
+                    else:
+                        frames["notes_frame"].grid_remove()
+                else:
+                    frames["notes_frame"].grid_remove()
+            else:
+                frames["pe_frame"].grid_remove()
+                frames["notes_frame"].grid_remove()
+
+            # Update output
+            output.delete(1.0, tk.END)
+            output.insert(tk.END, output_text)
+            
+        except ValueError:
+            messagebox.showerror("Error", "Please enter valid numbers where required")
+
+    # Create main frame for always-visible fields
+    main_frame = ttk.Frame(root)
+    main_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nw")
+
+    # Always-visible fields
+    main_fields = [
+        ("Appraised Value", "AV"),
+        ("Does it match refi auth? (y/n)", "avMatch"),
+        ("Principal Balance", "prinBal"),
+        ("Prepaid Interest", "ppInt"),
+        ("MI on payoff", "miDue"),
+        ("MIP refund on refi auth", "mipRefund"),
+        ("Original Principal", "origPrinc"),
+        ("New MI from MI screen", "newMI"),
+        ("PITI", "PITI"),
+        ("Cash to Close", "cTc"),
+        ("Rate Reduction", "rateRed"),
+        ("MI Reduction", "miRed")
+    ]
+
+    for i, (label_text, var_name) in enumerate(main_fields):
+        ttk.Label(main_frame, text=label_text + ":").grid(row=i, column=0, padx=5, pady=5, sticky="e")
+        entry = ttk.Entry(main_frame)
+        entry.grid(row=i, column=1, padx=5, pady=5)
+        entries[var_name] = entry
+
+    # Frame for 95% LTV fields (hidden by default)
+    ltv95_frame = ttk.LabelFrame(root, text="95% LTV Options")
+    ltv95_frame.grid(row=1, column=0, padx=5, pady=5, sticky="nw")
+    ltv95_frame.grid_remove()
+    frames["ltv95_frame"] = ltv95_frame
+    
+    ltv95_fields = [
+        ("Cash to Close at 95 LTV", "cTc95"),
+        ("Discount diff for next lowest rate", "ratDif95")
+    ]
+    for i, (label_text, var_name) in enumerate(ltv95_fields):
+        ttk.Label(ltv95_frame, text=label_text + ":").grid(row=i, column=0, padx=5, pady=5, sticky="e")
+        entry = ttk.Entry(ltv95_frame)
+        entry.grid(row=i, column=1, padx=5, pady=5)
+        entries[var_name] = entry
+
+    # Frame for PE > 150 fields (hidden by default)
+    pe_frame = ttk.LabelFrame(root, text="PE > 150 bps Details")
+    pe_frame.grid(row=2, column=0, padx=5, pady=5, sticky="nw")
+    pe_frame.grid_remove()
+    frames["pe_frame"] = pe_frame
+    
+    pe_fields = [
+        ("Light Escrow? (y/n)", "liteEscrw"),
+        ("Transfer Taxes? (y/n)", "xfertax"),
+        ("Commitment Fee? (y/n)", "cmmtFee"),
+        ("Notes from cap markets? (y/n)", "notes")
+    ]
+    for i, (label_text, var_name) in enumerate(pe_fields):
+        ttk.Label(pe_frame, text=label_text + ":").grid(row=i, column=0, padx=5, pady=5, sticky="e")
+        entry = ttk.Entry(pe_frame)
+        entry.grid(row=i, column=1, padx=5, pady=5)
+        entries[var_name] = entry
+
+    # Frame for notes fields (hidden by default)
+    notes_frame = ttk.LabelFrame(root, text="Notes Details")
+    notes_frame.grid(row=3, column=0, padx=5, pady=5, sticky="nw")
+    notes_frame.grid_remove()
+    frames["notes_frame"] = notes_frame
+    
+    notes_fields = [
+        ("PE from notes (bps)", "notesPE"),
+        ("Payment made since note? (y/n)", "pmtMade")
+    ]
+    for i, (label_text, var_name) in enumerate(notes_fields):
+        ttk.Label(notes_frame, text=label_text + ":").grid(row=i, column=0, padx=5, pady=5, sticky="e")
+        entry = ttk.Entry(notes_frame)
+        entry.grid(row=i, column=1, padx=5, pady=5)
+        entries[var_name] = entry
+
+    # Calculate button
+    ttk.Button(root, text="Calculate", command=calculate).grid(row=4, column=0, pady=10)
+
+    # Output text area
+    output = tk.Text(root, height=20, width=60)
+    output.grid(row=0, column=1, rowspan=5, padx=10, pady=5)
+
+    root.mainloop()
+
+# Run the GUI
+create_gui()
